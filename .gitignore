@@ -1,6 +1,8 @@
 __pycache__/
 output/
+outputs
 ckpt/
+ckpt
 .DS_Store
 tmp/
 debug_images/
