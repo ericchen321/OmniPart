@@ -175,9 +175,33 @@ with gr.Blocks(title="OmniPart") as demo:
 
 if __name__ == "__main__":
     os.makedirs("ckpt", exist_ok=True)
-    sam_ckpt_path = hf_hub_download(repo_id="omnipart/OmniPart_modules", filename="sam_vit_h_4b8939.pth", local_dir="ckpt")
-    partfield_ckpt_path = hf_hub_download(repo_id="omnipart/OmniPart_modules", filename="partfield_encoder.ckpt", local_dir="ckpt")
-    bbox_gen_ckpt_path = hf_hub_download(repo_id="omnipart/OmniPart_modules", filename="bbox_gen.ckpt", local_dir="ckpt")
+    sam_ckpt_name = "sam_vit_h_4b8939.pth"
+    partfield_ckpt_name = "partfield_encoder.ckpt"
+    bbox_gen_ckpt_name = "bbox_gen.ckpt"
+
+    sam_ckpt_path = os.path.join("ckpt", sam_ckpt_name)
+    if not os.path.exists(sam_ckpt_path):
+        sam_ckpt_path = hf_hub_download(
+            repo_id="omnipart/OmniPart_modules",
+            filename=sam_ckpt_name,
+            local_dir="ckpt",
+        )
+
+    partfield_ckpt_path = os.path.join("ckpt", partfield_ckpt_name)
+    if not os.path.exists(partfield_ckpt_path):
+        partfield_ckpt_path = hf_hub_download(
+            repo_id="omnipart/OmniPart_modules",
+            filename=partfield_ckpt_name,
+            local_dir="ckpt",
+        )
+
+    bbox_gen_ckpt_path = os.path.join("ckpt", bbox_gen_ckpt_name)
+    if not os.path.exists(bbox_gen_ckpt_path):
+        bbox_gen_ckpt_path = hf_hub_download(
+            repo_id="omnipart/OmniPart_modules",
+            filename=bbox_gen_ckpt_name,
+            local_dir="ckpt",
+        )
 
     prepare_models(sam_ckpt_path, partfield_ckpt_path, bbox_gen_ckpt_path)
 
