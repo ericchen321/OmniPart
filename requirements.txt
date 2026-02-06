@@ -16,7 +16,6 @@ xatlas==0.0.9
 pyvista==0.44.2
 pymeshfix==0.17.0
 igraph==0.11.8
-git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8
 xformers==0.0.27.post2
 spconv-cu120==2.3.6
 transformers==4.50.3
@@ -34,11 +33,7 @@ kornia
 timm
 h5py
 boto3
-git+https://github.com/facebookresearch/segment-anything.git
-git+https://github.com/facebookresearch/detectron2.git
 --find-links https://data.pyg.org/whl/torch-2.4.0+cu121.html
 torch-scatter
-
-https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.0.post2/flash_attn-2.7.0.post2+cu12torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
-https://huggingface.co/spaces/JeffreyXiang/TRELLIS/resolve/main/wheels/diff_gaussian_rasterization-0.0.0-cp310-cp310-linux_x86_64.whl?download=true
-https://huggingface.co/spaces/JeffreyXiang/TRELLIS/resolve/main/wheels/nvdiffrast-0.3.3-cp310-cp310-linux_x86_64.whl?download=true
+gradio==6.5.1
+spaces==0.47.0

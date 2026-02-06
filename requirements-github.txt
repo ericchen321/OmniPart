@@ -1,0 +1,4 @@
+git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8
+git+https://github.com/facebookresearch/segment-anything.git
+git+https://github.com/facebookresearch/detectron2.git
+https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.0.post2/flash_attn-2.7.0.post2+cu12torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
