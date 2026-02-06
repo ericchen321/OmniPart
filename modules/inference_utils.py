@@ -9,6 +9,132 @@ import torch
 import trimesh
 import glob
 from tqdm import tqdm
+from segment_anything import SamAutomaticMaskGenerator, build_sam
+from transformers import AutoModelForImageSegmentation
+
+from modules.label_2d_mask.visualizer import Visualizer
+from modules.label_2d_mask.label_parts import (
+    prepare_image,
+    get_sam_mask,
+    clean_segment_edges,
+    resize_and_pad_to_square,
+    size_th as DEFAULT_SIZE_TH,
+)
+
+SEG_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+_sam_mask_generator = None
+_rmbg_model = None
+
+
+def _prepare_segmentation_models(sam_ckpt_path: str):
+    global _sam_mask_generator, _rmbg_model
+
+    if _sam_mask_generator is None:
+        sam_model = build_sam(checkpoint=sam_ckpt_path).to(device=SEG_DEVICE)
+        _sam_mask_generator = SamAutomaticMaskGenerator(sam_model)
+
+    if _rmbg_model is None:
+        _rmbg_model = AutoModelForImageSegmentation.from_pretrained(
+            "briaai/RMBG-2.0",
+            trust_remote_code=True,
+        )
+        _rmbg_model.to(SEG_DEVICE)
+        _rmbg_model.eval()
+
+    return _sam_mask_generator, _rmbg_model
+
+
+def _parse_merge_groups(merge_input: Optional[str], unique_ids: np.ndarray):
+    if not merge_input:
+        return None
+
+    merge_groups = []
+    group_sets = merge_input.split(";")
+    for group_set in group_sets:
+        if not group_set.strip():
+            continue
+        ids = [int(x) for x in group_set.split(",") if x.strip() != ""]
+        if not ids:
+            continue
+        existing_ids = [seg_id for seg_id in ids if seg_id in unique_ids]
+        missing_ids = [seg_id for seg_id in ids if seg_id not in unique_ids]
+
+        if missing_ids:
+            print(f"[WARN] These IDs don't exist in the segmentation: {missing_ids}")
+
+        if existing_ids:
+            merge_groups.append(ids)
+        else:
+            print(f"[WARN] Skipping merge group with no valid IDs: {ids}")
+
+    return merge_groups if merge_groups else None
+
+
+def generate_segmentation_mask(
+    image_path: str,
+    output_dir: str,
+    sam_ckpt_path: str,
+    merge_input: Optional[str] = None,
+    size_threshold: int = DEFAULT_SIZE_TH,
+):
+    """
+    Generate a processed RGBA image and a numeric segmentation mask EXR file.
+    Returns (processed_image_path, mask_exr_path).
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    sam_mask_generator, rmbg_model = _prepare_segmentation_models(sam_ckpt_path)
+
+    img_name = os.path.basename(image_path).split(".")[0]
+    img = Image.open(image_path).convert("RGB")
+
+    processed_image = prepare_image(img, rmbg_net=rmbg_model.to(SEG_DEVICE))
+    processed_image = resize_and_pad_to_square(processed_image)
+
+    white_bg = Image.new("RGBA", processed_image.size, (255, 255, 255, 255))
+    white_bg_img = Image.alpha_composite(white_bg, processed_image.convert("RGBA"))
+    image = np.array(white_bg_img.convert("RGB"))
+
+    processed_image_path = os.path.join(output_dir, f"{img_name}_processed.png")
+    processed_image.save(processed_image_path)
+
+    visual = Visualizer(image)
+    group_ids, _ = get_sam_mask(
+        image,
+        sam_mask_generator,
+        visual,
+        merge_groups=None,
+        rgba_image=processed_image,
+        img_name=img_name,
+        save_dir=output_dir,
+        size_threshold=size_threshold,
+    )
+
+    unique_ids = np.unique(group_ids)
+    unique_ids = unique_ids[unique_ids >= 0]
+    merge_groups = _parse_merge_groups(merge_input, unique_ids)
+
+    final_group_ids, _ = get_sam_mask(
+        image,
+        sam_mask_generator,
+        visual,
+        merge_groups=merge_groups,
+        existing_group_ids=group_ids,
+        rgba_image=processed_image,
+        skip_split=True,
+        img_name=img_name,
+        save_dir=output_dir,
+        size_threshold=size_threshold,
+    )
+
+    final_group_ids = clean_segment_edges(final_group_ids)
+
+    mask_exr_path = os.path.join(output_dir, f"{img_name}_mask.exr")
+    save_mask = final_group_ids + 1
+    save_mask = save_mask.reshape(518, 518, 1).repeat(3, axis=-1)
+    cv2.imwrite(mask_exr_path, save_mask.astype(np.float32))
+
+    return processed_image_path, mask_exr_path
 
 def load_img_mask(img_path, mask_path, size=(518, 518)):
     image = Image.open(img_path)

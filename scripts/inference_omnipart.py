@@ -7,7 +7,7 @@ from omegaconf import OmegaConf
 
 from modules.bbox_gen.models.autogressive_bbox_gen import BboxGen
 from modules.part_synthesis.process_utils import save_parts_outputs
-from modules.inference_utils import load_img_mask, prepare_bbox_gen_input, prepare_part_synthesis_input, gen_mesh_from_bounds, vis_voxel_coords, merge_parts
+from modules.inference_utils import load_img_mask, prepare_bbox_gen_input, prepare_part_synthesis_input, gen_mesh_from_bounds, vis_voxel_coords, merge_parts, generate_segmentation_mask
 from modules.part_synthesis.pipelines import OmniPartImageTo3DPipeline
 
 from huggingface_hub import hf_hub_download
@@ -17,8 +17,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--image_input", type=str, required=True)
-    parser.add_argument("--mask_input", type=str, required=True)
-    parser.add_argument("--output_root", type=str, default="./output")
+    parser.add_argument("--output_root", type=str, default="./outputs")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num_inference_steps", type=int, default=25)
     parser.add_argument("--guidance_scale", type=float, default=7.5)
@@ -32,6 +31,10 @@ if __name__ == "__main__":
         args.partfield_encoder_path = hf_hub_download(repo_id="omnipart/OmniPart_modules", filename="partfield_encoder.ckpt", local_dir="ckpt")
     if not os.path.exists(args.bbox_gen_ckpt):
         args.bbox_gen_ckpt = hf_hub_download(repo_id="omnipart/OmniPart_modules", filename="bbox_gen.ckpt", local_dir="ckpt")
+    sam_ckpt_name = "sam_vit_h_4b8939.pth"
+    sam_ckpt_path = os.path.join("ckpt", sam_ckpt_name)
+    if not os.path.exists(sam_ckpt_path):
+        sam_ckpt_path = hf_hub_download(repo_id="omnipart/OmniPart_modules", filename=sam_ckpt_name, local_dir="ckpt")
 
     os.makedirs(args.output_root, exist_ok=True)
     output_dir = os.path.join(args.output_root, args.image_input.split("/")[-1].split(".")[0])
@@ -53,7 +56,12 @@ if __name__ == "__main__":
     bbox_gen_model.eval().half()
     print("[INFO] BboxGen model loaded")
     
-    img_white_bg, img_black_bg, ordered_mask_input, img_mask_vis = load_img_mask(args.image_input, args.mask_input)
+    processed_image_path, mask_path = generate_segmentation_mask(
+        args.image_input,
+        output_dir,
+        sam_ckpt_path,
+    )
+    img_white_bg, img_black_bg, ordered_mask_input, img_mask_vis = load_img_mask(processed_image_path, mask_path)
     img_mask_vis.save(os.path.join(output_dir, "img_mask_vis.png"))
 
     voxel_coords = part_synthesis_pipeline.get_coords(img_black_bg, num_samples=1, seed=args.seed, sparse_structure_sampler_params={"steps": 25, "cfg_strength": 7.5})
@@ -70,7 +78,10 @@ if __name__ == "__main__":
     bboxes_vis.export(os.path.join(output_dir, "bboxes_vis.glb"))
     print("[INFO] BboxGen output saved")
 
-    part_synthesis_input = prepare_part_synthesis_input(os.path.join(output_dir, "voxel_coords.npy"), os.path.join(output_dir, "bboxes.npy"), ordered_mask_input)
+    part_synthesis_input = prepare_part_synthesis_input(
+        os.path.join(output_dir, "voxel_coords.npy"),
+        os.path.join(output_dir, "bboxes.npy"), ordered_mask_input)
+    print(f"[INFO] Prepared PartSynthesis input")
     part_synthesis_output = part_synthesis_pipeline.get_slat(
         img_black_bg, 
         part_synthesis_input['coords'], 
@@ -81,6 +92,7 @@ if __name__ == "__main__":
         formats=['mesh', 'gaussian', 'radiance_field'],
         preprocess_image=False,
     )
+    print(f"[INFO] Got SlAT")
     save_parts_outputs(
         part_synthesis_output, 
         output_dir=output_dir, 
