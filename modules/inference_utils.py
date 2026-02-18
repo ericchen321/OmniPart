@@ -488,14 +488,21 @@ def prepare_part_synthesis_input(voxel_coords_path, bbox_depth_path, ordered_mas
 def merge_parts(save_dir):
     scene_list = []
     scene_list_texture = []
+    vertex_part_labels = []
+    part_colors = []
     part_list = glob.glob(os.path.join(save_dir, "*.glb"))
     part_list = [p for p in part_list if "part" in p and "parts" not in p and "part0" not in p] # part 0 is the overall model
     part_list.sort()
     for i, part_path in enumerate(tqdm(part_list, desc="Merging parts")):
         part_mesh = trimesh.load(part_path, force='mesh')
+        vertex_part_labels.append(
+            np.full(part_mesh.vertices.shape[0], i, dtype=np.int32)
+        )
         scene_list_texture.append(part_mesh)
 
-        random_color = get_random_color(i, use_float=True)
+        random_color_uint8 = get_random_color(i, use_float=False)
+        random_color = random_color_uint8.astype(np.float32) / 255.0
+        part_colors.append(random_color_uint8)
         part_mesh_color = part_mesh.copy()
         part_mesh_color.visual = trimesh.visual.ColorVisuals(
             mesh=part_mesh_color,
@@ -507,3 +514,14 @@ def merge_parts(save_dir):
     scene_texture.export(os.path.join(save_dir, "mesh_textured.glb"))
     scene = trimesh.Scene(scene_list)
     scene.export(os.path.join(save_dir, "mesh_segment.glb"))
+
+    if vertex_part_labels:
+        vertex_part_labels = np.concatenate(vertex_part_labels, axis=0)
+        part_colors = np.stack(part_colors, axis=0)
+    else:
+        raise ValueError(
+            "[ERROR] Should be getting non-empty vertex-part label map!")
+    np.savez(
+        os.path.join(save_dir, "mesh_vertex_part_labels.npz"),
+        vertex_part_labels=vertex_part_labels,
+        part_colors=part_colors)
