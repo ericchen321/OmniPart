@@ -21,6 +21,9 @@ from modules.label_2d_mask.label_parts import (
     size_th as DEFAULT_SIZE_TH,
 )
 
+import pyvista as pv
+import pytetwild
+
 SEG_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 _sam_mask_generator = None
 _rmbg_model = None
@@ -488,40 +491,76 @@ def prepare_part_synthesis_input(voxel_coords_path, bbox_depth_path, ordered_mas
 def merge_parts(save_dir):
     scene_list = []
     scene_list_texture = []
+    tet_part_meshes = []
     vertex_part_labels = []
+    tri_part_labels = []
+    tet_part_labels = []
     part_colors = []
     part_list = glob.glob(os.path.join(save_dir, "*.glb"))
-    part_list = [p for p in part_list if "part" in p and "parts" not in p and "part0" not in p] # part 0 is the overall model
+    part_list = [
+        p for p in part_list if "part" in p and "parts" not in p and "part0" not in p] # part 0 is the overall model
     part_list.sort()
-    for i, part_path in enumerate(tqdm(part_list, desc="Merging parts")):
-        part_mesh = trimesh.load(part_path, force='mesh')
+    for i, part_surf_path in enumerate(tqdm(part_list, desc="Merging parts")):
+        part_surf_mesh = trimesh.load(part_surf_path, force='mesh')
         vertex_part_labels.append(
-            np.full(part_mesh.vertices.shape[0], i, dtype=np.int32)
+            np.full(part_surf_mesh.vertices.shape[0], i, dtype=np.int32)
         )
-        scene_list_texture.append(part_mesh)
+        tri_part_labels.append(
+            np.full(part_surf_mesh.faces.shape[0], i, dtype=np.int32)
+        )
+        scene_list_texture.append(part_surf_mesh)
 
         random_color_uint8 = get_random_color(i, use_float=False)
         random_color = random_color_uint8.astype(np.float32) / 255.0
         part_colors.append(random_color_uint8)
-        part_mesh_color = part_mesh.copy()
-        part_mesh_color.visual = trimesh.visual.ColorVisuals(
-            mesh=part_mesh_color,
+        part_surf_mesh_color = part_surf_mesh.copy()
+        part_surf_mesh_color.visual = trimesh.visual.ColorVisuals(
+            mesh=part_surf_mesh_color,
             vertex_colors=random_color
         )
-        scene_list.append(part_mesh_color)
-        os.remove(part_path)
-    scene_texture = trimesh.Scene(scene_list_texture)
-    scene_texture.export(os.path.join(save_dir, "mesh_textured.glb"))
-    scene = trimesh.Scene(scene_list)
-    scene.export(os.path.join(save_dir, "mesh_segment.glb"))
+        scene_list.append(part_surf_mesh_color)
+        # os.remove(part_surf_path)
 
-    if vertex_part_labels:
-        vertex_part_labels = np.concatenate(vertex_part_labels, axis=0)
-        part_colors = np.stack(part_colors, axis=0)
-    else:
-        raise ValueError(
-            "[ERROR] Should be getting non-empty vertex-part label map!")
+        surface_faces = np.hstack(
+            [
+                np.full((part_surf_mesh.faces.shape[0], 1), 3, dtype=np.int64),
+                part_surf_mesh.faces.astype(np.int64),
+            ]
+        ).reshape(-1)
+        surface_poly = pv.PolyData(
+            part_surf_mesh.vertices.astype(np.float64),
+            surface_faces,
+        )
+        tet_mesh = pytetwild.tetrahedralize_pv(surface_poly)
+        tet_mesh.cell_data["part_id"] = np.full(
+            tet_mesh.n_cells, i, dtype=np.int32)
+        tet_part_meshes.append(tet_mesh)
+        tet_part_labels.append(
+            np.full(tet_mesh.n_cells, i, dtype=np.int32))
+    
+    # form combined surface mesh with texture and without texture
+    scene_texture = trimesh.Scene(scene_list_texture)
+    scene_texture.export(os.path.join(save_dir, "mesh_combined_textured.glb"))
+    scene = trimesh.Scene(scene_list)
+    scene.export(os.path.join(save_dir, "mesh_combined.glb"))
+
+    combined_tet_mesh = pv.merge(tet_part_meshes, merge_points=False)
+    pv.save_meshio(
+        os.path.join(save_dir, "mesh_combined.mesh"),
+        combined_tet_mesh)
+
+    vertex_part_labels = np.concatenate(vertex_part_labels, axis=0)
+    tri_part_labels = np.concatenate(tri_part_labels, axis=0)
+    tet_part_labels = np.concatenate(tet_part_labels, axis=0)
+    part_colors = np.stack(part_colors, axis=0)
+    # print shapes
+    print(f"vertex_part_labels shape: {vertex_part_labels.shape}")
+    print(f"tri_part_labels shape: {tri_part_labels.shape}")
+    print(f"tet_part_labels shape: {tet_part_labels.shape}")
+    print(f"part_colors shape: {part_colors.shape}")
     np.savez(
-        os.path.join(save_dir, "mesh_vertex_part_labels.npz"),
+        os.path.join(save_dir, "part_labels.npz"),
         vertex_part_labels=vertex_part_labels,
+        tri_part_labels=tri_part_labels,
+        tet_part_labels=tet_part_labels,
         part_colors=part_colors)

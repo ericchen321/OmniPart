@@ -39,3 +39,6 @@ torch-scatter
 gradio==6.5.1
 spaces==0.47.0
 opencv-python==4.13.0.92
+pytetwild==0.2.3
+pyvista==0.47.0
+meshio==5.3.5
