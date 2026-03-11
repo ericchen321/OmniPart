@@ -493,8 +493,6 @@ def merge_parts(save_dir):
     scene_list_texture = []
     tet_part_meshes = []
     vertex_part_labels = []
-    tri_part_labels = []
-    tet_part_labels = []
     part_colors = []
     part_list = glob.glob(os.path.join(save_dir, "*.glb"))
     part_list = [
@@ -504,9 +502,6 @@ def merge_parts(save_dir):
         part_surf_mesh = trimesh.load(part_surf_path, force='mesh')
         vertex_part_labels.append(
             np.full(part_surf_mesh.vertices.shape[0], i, dtype=np.int32)
-        )
-        tri_part_labels.append(
-            np.full(part_surf_mesh.faces.shape[0], i, dtype=np.int32)
         )
         scene_list_texture.append(part_surf_mesh)
 
@@ -535,8 +530,6 @@ def merge_parts(save_dir):
         tet_mesh.cell_data["part_id"] = np.full(
             tet_mesh.n_cells, i, dtype=np.int32)
         tet_part_meshes.append(tet_mesh)
-        tet_part_labels.append(
-            np.full(tet_mesh.n_cells, i, dtype=np.int32))
     
     # form combined surface mesh with texture and without texture
     scene_texture = trimesh.Scene(scene_list_texture)
@@ -550,17 +543,52 @@ def merge_parts(save_dir):
         combined_tet_mesh)
 
     vertex_part_labels = np.concatenate(vertex_part_labels, axis=0)
-    tri_part_labels = np.concatenate(tri_part_labels, axis=0)
-    tet_part_labels = np.concatenate(tet_part_labels, axis=0)
     part_colors = np.stack(part_colors, axis=0)
+
+    assert "part_id" in combined_tet_mesh.cell_data, \
+        "combined_tet_mesh is missing required cell_data['part_id']."
+    tet_part_labels = np.asarray(
+        combined_tet_mesh.cell_data["part_id"], dtype=np.int32
+    ).reshape(-1)
+
+    if tet_part_labels.shape[0] != combined_tet_mesh.n_cells:
+        raise ValueError(
+            f"tet_part_labels length ({tet_part_labels.shape[0]}) does not match "
+            f"combined_tet_mesh.n_cells ({combined_tet_mesh.n_cells})."
+        )
+    if tet_part_labels.min() < 0 or tet_part_labels.max() >= part_colors.shape[0]:
+        raise ValueError(
+            f"tet_part_labels values must be in [0, {part_colors.shape[0] - 1}], "
+            f"got min={tet_part_labels.min()} max={tet_part_labels.max()}."
+        )
+
+    combined_tet_mesh.cell_data["part_label"] = tet_part_labels
+    tet_colors = part_colors[tet_part_labels][:, :3].astype(np.uint8)
+    combined_tet_mesh.cell_data["part_color"] = tet_colors
+    combined_tet_mesh.save(os.path.join(save_dir, "mesh_combined_colored.vtu"))
+
     # print shapes
     print(f"vertex_part_labels shape: {vertex_part_labels.shape}")
-    print(f"tri_part_labels shape: {tri_part_labels.shape}")
     print(f"tet_part_labels shape: {tet_part_labels.shape}")
     print(f"part_colors shape: {part_colors.shape}")
     np.savez(
         os.path.join(save_dir, "part_labels.npz"),
         vertex_part_labels=vertex_part_labels,
-        tri_part_labels=tri_part_labels,
         tet_part_labels=tet_part_labels,
         part_colors=part_colors)
+
+    try:
+        plotter = pv.Plotter(off_screen=True, window_size=(1024, 1024))
+        plotter.set_background("white")
+        plotter.add_mesh(
+            combined_tet_mesh,
+            scalars="part_color",
+            rgb=True,
+            show_edges=False,
+            preference="cell",
+        )
+        plotter.view_isometric()
+        plotter.screenshot(os.path.join(save_dir, "mesh_combined_part_labels.png"))
+        plotter.close()
+    except Exception as e:
+        print(f"[WARN] Failed to render tet part label visualization: {e}")
