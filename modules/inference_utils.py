@@ -1,5 +1,6 @@
 import os
 os.environ['OPENCV_IO_ENABLE_OPENEXR'] = '1'
+os.environ.setdefault("PYVISTA_OFF_SCREEN", "true")
 import numpy as np
 from typing import Optional
 from PIL import Image, ImageDraw
@@ -23,6 +24,8 @@ from modules.label_2d_mask.label_parts import (
 
 import pyvista as pv
 import pytetwild
+
+pv.OFF_SCREEN = True
 
 SEG_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 _sam_mask_generator = None
@@ -578,7 +581,9 @@ def merge_parts(save_dir):
         part_colors=part_colors)
 
     try:
-        plotter = pv.Plotter(off_screen=True, window_size=(1024, 1024))
+        plotter = pv.Plotter(off_screen=True, notebook=False, window_size=(1024, 1024))
+        if getattr(plotter, "ren_win", None) is not None:
+            plotter.ren_win.SetOffScreenRendering(1)
         plotter.set_background("white")
         plotter.add_mesh(
             combined_tet_mesh,

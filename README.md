@@ -24,7 +24,12 @@ git clone https://github.com/HKU-MMLab/OmniPart
 cd OmniPart
 ```
 
-Create a conda environment (optional):
+Install packages for headless rendering:
+```bash
+sudo apt install xvfb libgl1-mesa-dev
+```
+
+Create a conda environment:
 ```bash
 conda create -n omnipart python=3.10
 conda activate omnipart
@@ -48,7 +53,7 @@ python app.py
 If running OmniPart with command lines, you need to obtain the segmentation mask of the input image first. The mask is saved as a .exr file with the shape [h, w, 3], where the last dimension contains the 2D part_id replicated across all three channels.
 
 ```bash
-python -m scripts.inference_omnipart --image_input {IMAGE_PATH}
+./scripts/run_inference.sh <IMAGE_PATH>
 ```
 
 The required model weights will be automatically downloaded:
