@@ -495,6 +495,7 @@ def merge_parts(save_dir):
     scene_list = []
     scene_list_texture = []
     tet_part_meshes = []
+    render_surface_meshes = []
     vertex_part_labels = []
     part_colors = []
     part_list = glob.glob(os.path.join(save_dir, "*.glb"))
@@ -529,6 +530,7 @@ def merge_parts(save_dir):
             part_surf_mesh.vertices.astype(np.float64),
             surface_faces,
         )
+        render_surface_meshes.append(surface_poly)
         tet_mesh = pytetwild.tetrahedralize_pv(surface_poly)
         tet_mesh.cell_data["part_id"] = np.full(
             tet_mesh.n_cells, i, dtype=np.int32)
@@ -547,6 +549,9 @@ def merge_parts(save_dir):
 
     vertex_part_labels = np.concatenate(vertex_part_labels, axis=0)
     part_colors = np.stack(part_colors, axis=0)
+    assert len(render_surface_meshes) == part_colors.shape[0], \
+        "render_surface_meshes and part_colors must have the same length."
+    render_surface_colors = part_colors[:, :3].astype(np.float32) / 255.0
 
     assert "part_id" in combined_tet_mesh.cell_data, \
         "combined_tet_mesh is missing required cell_data['part_id']."
@@ -584,16 +589,57 @@ def merge_parts(save_dir):
         plotter = pv.Plotter(off_screen=True, notebook=False, window_size=(1024, 1024))
         if getattr(plotter, "ren_win", None) is not None:
             plotter.ren_win.SetOffScreenRendering(1)
+        if hasattr(plotter, "disable_anti_aliasing"):
+            plotter.disable_anti_aliasing()
         plotter.set_background("white")
-        plotter.add_mesh(
-            combined_tet_mesh,
-            scalars="part_color",
-            rgb=True,
-            show_edges=False,
-            preference="cell",
+        for i, render_mesh in enumerate(render_surface_meshes):
+            render_color = render_surface_colors[i]
+            plotter.add_mesh(
+                render_mesh,
+                color=tuple(render_color.tolist()),
+                show_edges=False,
+                lighting=False,
+                smooth_shading=False,
+            )
+
+        bounds = combined_tet_mesh.bounds
+        center = np.array(
+            [
+                0.5 * (bounds[0] + bounds[1]),
+                0.5 * (bounds[2] + bounds[3]),
+                0.5 * (bounds[4] + bounds[5]),
+            ],
+            dtype=np.float64,
         )
-        plotter.view_isometric()
-        plotter.screenshot(os.path.join(save_dir, "mesh_combined_part_labels.png"))
+        extents = np.array(
+            [bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4]],
+            dtype=np.float64,
+        )
+        max_extent = float(np.max(extents))
+        camera_distance = max(2.5 * max_extent, 1.0)
+
+        view_specs = [
+            ("front", np.array([0.0, 0.0, 1.0]), np.array([0.0, 1.0, 0.0])),
+            ("back", np.array([0.0, 0.0, -1.0]), np.array([0.0, 1.0, 0.0])),
+            ("left", np.array([-1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0])),
+            ("right", np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0])),
+            ("top", np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, -1.0])),
+            ("bottom", np.array([0.0, -1.0, 0.0]), np.array([0.0, 0.0, 1.0])),
+        ]
+
+        for view_name, direction, up in view_specs:
+            position = center + camera_distance * direction
+            plotter.camera_position = (
+                tuple(position.tolist()),
+                tuple(center.tolist()),
+                tuple(up.tolist()),
+            )
+            plotter.reset_camera_clipping_range()
+            plotter.render()
+            plotter.screenshot(
+                os.path.join(save_dir, f"mesh_combined_part_labels_{view_name}.png")
+            )
+
         plotter.close()
     except Exception as e:
-        print(f"[WARN] Failed to render tet part label visualization: {e}")
+        print(f"[WARN] Failed to render six-view part label visualization: {e}")

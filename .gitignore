@@ -8,3 +8,6 @@ ckpt
 tmp/
 debug_images/
 __tracked_surface.stl
+PLAN*.md
+AGENTS.md
+.agents/
