@@ -492,11 +492,13 @@ def prepare_part_synthesis_input(voxel_coords_path, bbox_depth_path, ordered_mas
 
 
 def merge_parts(save_dir):
-    scene_list = []
+    surface_meshes_colored = []
     scene_list_texture = []
     tet_part_meshes = []
     render_surface_meshes = []
-    vertex_part_labels = []
+    tet_vertex_part_labels = []
+    surface_vertex_part_labels = []
+    tri_part_labels = []
     part_colors = []
     part_list = glob.glob(os.path.join(save_dir, "*.glb"))
     part_list = [
@@ -504,20 +506,25 @@ def merge_parts(save_dir):
     part_list.sort()
     for i, part_surf_path in enumerate(tqdm(part_list, desc="Merging parts")):
         part_surf_mesh = trimesh.load(part_surf_path, force='mesh')
-        vertex_part_labels.append(
+        surface_vertex_part_labels.append(
             np.full(part_surf_mesh.vertices.shape[0], i, dtype=np.int32)
+        )
+        tri_part_labels.append(
+            np.full(part_surf_mesh.faces.shape[0], i, dtype=np.int32)
         )
         scene_list_texture.append(part_surf_mesh)
 
         random_color_uint8 = get_random_color(i, use_float=False)
-        random_color = random_color_uint8.astype(np.float32) / 255.0
         part_colors.append(random_color_uint8)
         part_surf_mesh_color = part_surf_mesh.copy()
         part_surf_mesh_color.visual = trimesh.visual.ColorVisuals(
             mesh=part_surf_mesh_color,
-            vertex_colors=random_color
+            vertex_colors=np.tile(
+                random_color_uint8,
+                (part_surf_mesh_color.vertices.shape[0], 1),
+            ),
         )
-        scene_list.append(part_surf_mesh_color)
+        surface_meshes_colored.append(part_surf_mesh_color)
         # os.remove(part_surf_path)
 
         surface_faces = np.hstack(
@@ -532,6 +539,10 @@ def merge_parts(save_dir):
         )
         render_surface_meshes.append(surface_poly)
         tet_mesh = pytetwild.tetrahedralize_pv(surface_poly)
+        tet_vertex_part_labels.append(
+            np.full(tet_mesh.n_points, i, dtype=np.int32)
+        )
+        tet_mesh.point_data["part_id"] = tet_vertex_part_labels[-1]
         tet_mesh.cell_data["part_id"] = np.full(
             tet_mesh.n_cells, i, dtype=np.int32)
         tet_part_meshes.append(tet_mesh)
@@ -539,19 +550,29 @@ def merge_parts(save_dir):
     # form combined surface mesh with texture and without texture
     scene_texture = trimesh.Scene(scene_list_texture)
     scene_texture.export(os.path.join(save_dir, "mesh_combined_textured.glb"))
-    scene = trimesh.Scene(scene_list)
-    scene.export(os.path.join(save_dir, "mesh_combined.glb"))
+    combined_surface_mesh_colored = trimesh.util.concatenate(surface_meshes_colored)
+    combined_surface_mesh_colored.export(
+        os.path.join(save_dir, "mesh_combined_colored_by_parts.glb")
+    )
 
     combined_tet_mesh = pv.merge(tet_part_meshes, merge_points=False)
     pv.save_meshio(
         os.path.join(save_dir, "mesh_combined.mesh"),
         combined_tet_mesh)
 
-    vertex_part_labels = np.concatenate(vertex_part_labels, axis=0)
+    tet_vertex_part_labels = np.concatenate(tet_vertex_part_labels, axis=0)
+    surface_vertex_part_labels = np.concatenate(surface_vertex_part_labels, axis=0)
+    tri_part_labels = np.concatenate(tri_part_labels, axis=0)
     part_colors = np.stack(part_colors, axis=0)
     assert len(render_surface_meshes) == part_colors.shape[0], \
         "render_surface_meshes and part_colors must have the same length."
     render_surface_colors = part_colors[:, :3].astype(np.float32) / 255.0
+    assert tet_vertex_part_labels.shape[0] == combined_tet_mesh.n_points, \
+        "tet_vertex_part_labels and combined_tet_mesh.n_points must match."
+    assert surface_vertex_part_labels.shape[0] == combined_surface_mesh_colored.vertices.shape[0], \
+        "surface_vertex_part_labels and combined_surface_mesh_colored.vertices must match."
+    assert tri_part_labels.shape[0] == combined_surface_mesh_colored.faces.shape[0], \
+        "tri_part_labels and combined_surface_mesh_colored.faces must match."
 
     assert "part_id" in combined_tet_mesh.cell_data, \
         "combined_tet_mesh is missing required cell_data['part_id']."
@@ -570,19 +591,24 @@ def merge_parts(save_dir):
             f"got min={tet_part_labels.min()} max={tet_part_labels.max()}."
         )
 
+    combined_tet_mesh.point_data["part_label"] = tet_vertex_part_labels
     combined_tet_mesh.cell_data["part_label"] = tet_part_labels
     tet_colors = part_colors[tet_part_labels][:, :3].astype(np.uint8)
     combined_tet_mesh.cell_data["part_color"] = tet_colors
     combined_tet_mesh.save(os.path.join(save_dir, "mesh_combined_colored.vtu"))
 
     # print shapes
-    print(f"vertex_part_labels shape: {vertex_part_labels.shape}")
+    print(f"tet_vertex_part_labels shape: {tet_vertex_part_labels.shape}")
     print(f"tet_part_labels shape: {tet_part_labels.shape}")
+    print(f"surface_vertex_part_labels shape: {surface_vertex_part_labels.shape}")
+    print(f"tri_part_labels shape: {tri_part_labels.shape}")
     print(f"part_colors shape: {part_colors.shape}")
     np.savez(
         os.path.join(save_dir, "part_labels.npz"),
-        vertex_part_labels=vertex_part_labels,
+        tet_vertex_part_labels=tet_vertex_part_labels,
         tet_part_labels=tet_part_labels,
+        surface_vertex_part_labels=surface_vertex_part_labels,
+        tri_part_labels=tri_part_labels,
         part_colors=part_colors)
 
     try:
