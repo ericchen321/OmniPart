@@ -13,7 +13,6 @@ rembg==2.0.60
 onnxruntime==1.20.1
 trimesh==4.5.3
 xatlas==0.0.9
-pyvista==0.44.2
 pymeshfix==0.17.0
 igraph==0.11.8
 xformers==0.0.27.post2
@@ -38,7 +37,17 @@ boto3
 torch-scatter
 gradio==6.5.1
 spaces==0.47.0
+mesh2sdf
+loguru
 opencv-python==4.13.0.92
 pytetwild==0.2.3
 pyvista==0.47.0
 meshio==5.3.5
+segment_anything==1.0
+einops == 0.8.2
+plyfile == 1.1.3
+utils3d
+git+https://github.com/NVlabs/nvdiffrast.git
+git+https://github.com/facebookresearch/detectron2.git
+flash-attn
+setuptools == 80.10.2

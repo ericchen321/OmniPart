@@ -37,7 +37,7 @@ conda activate omnipart
 
 Install dependencies:
 ```bash
-pip install -r requirements.txt
+pip install --no-build-isolation -r requirements.txt
 ```
 
 ## 💡 Usage
