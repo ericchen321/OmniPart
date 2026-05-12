@@ -56,7 +56,14 @@ def save_parts_outputs(outputs, output_dir, simplify_ratio, save_video=True, sav
                 outputs['gaussian'][i].save_ply(ply_path)
             else:
                 gs_list.append(outputs['gaussian'][i])
-                
+
+    if not gs_list:
+        raise ValueError(
+            "No part gaussians were collected for export. "
+            "This usually means all per-part GLB postprocessing steps failed earlier; "
+            "check the preceding 'Error in postprocess_mesh' messages."
+        )
+
     merged_gaussian = merge_gaussians(gs_list)
     merged_gaussian.save_ply(f"{output_dir}/merged_gs.ply")
     

@@ -99,7 +99,7 @@ if __name__ == "__main__":
         simplify_ratio=args.simplify_ratio, 
         save_video=False,
         save_glb=True,
-        textured=False,
+        textured=True,
     )
     merge_parts(output_dir)
     print("[INFO] PartSynthesis output saved")
