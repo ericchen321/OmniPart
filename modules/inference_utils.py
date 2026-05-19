@@ -32,12 +32,8 @@ _sam_mask_generator = None
 _rmbg_model = None
 
 
-def _prepare_segmentation_models(sam_ckpt_path: str):
-    global _sam_mask_generator, _rmbg_model
-
-    if _sam_mask_generator is None:
-        sam_model = build_sam(checkpoint=sam_ckpt_path).to(device=SEG_DEVICE)
-        _sam_mask_generator = SamAutomaticMaskGenerator(sam_model)
+def _prepare_rmbg_model():
+    global _rmbg_model
 
     if _rmbg_model is None:
         _rmbg_model = AutoModelForImageSegmentation.from_pretrained(
@@ -47,7 +43,17 @@ def _prepare_segmentation_models(sam_ckpt_path: str):
         _rmbg_model.to(SEG_DEVICE)
         _rmbg_model.eval()
 
-    return _sam_mask_generator, _rmbg_model
+    return _rmbg_model
+
+
+def _prepare_segmentation_models(sam_ckpt_path: str):
+    global _sam_mask_generator
+
+    if _sam_mask_generator is None:
+        sam_model = build_sam(checkpoint=sam_ckpt_path).to(device=SEG_DEVICE)
+        _sam_mask_generator = SamAutomaticMaskGenerator(sam_model)
+
+    return _sam_mask_generator, _prepare_rmbg_model()
 
 
 def _parse_merge_groups(merge_input: Optional[str], unique_ids: np.ndarray):
@@ -141,6 +147,21 @@ def generate_segmentation_mask(
     cv2.imwrite(mask_exr_path, save_mask.astype(np.float32))
 
     return processed_image_path, mask_exr_path
+
+
+def prepare_processed_image_for_mask(image_path: str, output_dir: str):
+    """
+    Generate the processed RGBA image used by PartSynthesis when an external
+    numeric mask EXR is supplied by an agentic segmentation fallback.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    img_name = os.path.basename(image_path).split(".")[0]
+    img = Image.open(image_path).convert("RGB")
+    processed_image = prepare_image(img, rmbg_net=_prepare_rmbg_model().to(SEG_DEVICE))
+    processed_image = resize_and_pad_to_square(processed_image)
+    processed_image_path = os.path.join(output_dir, f"{img_name}_processed.png")
+    processed_image.save(processed_image_path)
+    return processed_image_path
 
 def load_img_mask(img_path, mask_path, size=(518, 518)):
     image = Image.open(img_path)

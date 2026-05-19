@@ -7,7 +7,16 @@ from omegaconf import OmegaConf
 
 from modules.bbox_gen.models.autogressive_bbox_gen import BboxGen
 from modules.part_synthesis.process_utils import save_parts_outputs
-from modules.inference_utils import load_img_mask, prepare_bbox_gen_input, prepare_part_synthesis_input, gen_mesh_from_bounds, vis_voxel_coords, merge_parts, generate_segmentation_mask
+from modules.inference_utils import (
+    load_img_mask,
+    prepare_bbox_gen_input,
+    prepare_part_synthesis_input,
+    gen_mesh_from_bounds,
+    vis_voxel_coords,
+    merge_parts,
+    generate_segmentation_mask,
+    prepare_processed_image_for_mask,
+)
 from modules.part_synthesis.pipelines import OmniPartImageTo3DPipeline
 
 from huggingface_hub import hf_hub_download
@@ -22,19 +31,27 @@ if __name__ == "__main__":
     parser.add_argument("--num_inference_steps", type=int, default=25)
     parser.add_argument("--guidance_scale", type=float, default=7.5)
     parser.add_argument("--simplify_ratio", type=float, default=0.3)
-    parser.add_argument("--partfield_encoder_path", type=str, default="ckpt/model_objaverse.ckpt")
+    parser.add_argument("--partfield_encoder_path", type=str, default="ckpt/partfield_encoder.ckpt")
     parser.add_argument("--bbox_gen_ckpt", type=str, default="ckpt/bbox_gen.ckpt")
     parser.add_argument("--part_synthesis_ckpt", type=str, default="omnipart/OmniPart")
+    parser.add_argument(
+        "--mask_input",
+        type=str,
+        default=None,
+        help="Optional external numeric mask EXR from an agentic segmentation fallback.",
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.partfield_encoder_path):
         args.partfield_encoder_path = hf_hub_download(repo_id="omnipart/OmniPart_modules", filename="partfield_encoder.ckpt", local_dir="ckpt")
     if not os.path.exists(args.bbox_gen_ckpt):
         args.bbox_gen_ckpt = hf_hub_download(repo_id="omnipart/OmniPart_modules", filename="bbox_gen.ckpt", local_dir="ckpt")
-    sam_ckpt_name = "sam_vit_h_4b8939.pth"
-    sam_ckpt_path = os.path.join("ckpt", sam_ckpt_name)
-    if not os.path.exists(sam_ckpt_path):
-        sam_ckpt_path = hf_hub_download(repo_id="omnipart/OmniPart_modules", filename=sam_ckpt_name, local_dir="ckpt")
+    sam_ckpt_path = None
+    if args.mask_input is None:
+        sam_ckpt_name = "sam_vit_h_4b8939.pth"
+        sam_ckpt_path = os.path.join("ckpt", sam_ckpt_name)
+        if not os.path.exists(sam_ckpt_path):
+            sam_ckpt_path = hf_hub_download(repo_id="omnipart/OmniPart_modules", filename=sam_ckpt_name, local_dir="ckpt")
 
     os.makedirs(args.output_root, exist_ok=True)
     output_dir = os.path.join(args.output_root, args.image_input.split("/")[-1].split(".")[0])
@@ -56,11 +73,15 @@ if __name__ == "__main__":
     bbox_gen_model.eval().half()
     print("[INFO] BboxGen model loaded")
     
-    processed_image_path, mask_path = generate_segmentation_mask(
-        args.image_input,
-        output_dir,
-        sam_ckpt_path,
-    )
+    if args.mask_input is None:
+        processed_image_path, mask_path = generate_segmentation_mask(
+            args.image_input,
+            output_dir,
+            sam_ckpt_path,
+        )
+    else:
+        processed_image_path = prepare_processed_image_for_mask(args.image_input, output_dir)
+        mask_path = args.mask_input
     img_white_bg, img_black_bg, ordered_mask_input, img_mask_vis = load_img_mask(processed_image_path, mask_path)
     img_mask_vis.save(os.path.join(output_dir, "img_mask_vis.png"))
 
