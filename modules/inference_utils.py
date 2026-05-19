@@ -149,20 +149,6 @@ def generate_segmentation_mask(
     return processed_image_path, mask_exr_path
 
 
-def prepare_processed_image_for_mask(image_path: str, output_dir: str):
-    """
-    Generate the processed RGBA image used by PartSynthesis when an external
-    numeric mask EXR is supplied by an agentic segmentation fallback.
-    """
-    os.makedirs(output_dir, exist_ok=True)
-    img_name = os.path.basename(image_path).split(".")[0]
-    img = Image.open(image_path).convert("RGB")
-    processed_image = prepare_image(img, rmbg_net=_prepare_rmbg_model().to(SEG_DEVICE))
-    processed_image = resize_and_pad_to_square(processed_image)
-    processed_image_path = os.path.join(output_dir, f"{img_name}_processed.png")
-    processed_image.save(processed_image_path)
-    return processed_image_path
-
 def load_img_mask(img_path, mask_path, size=(518, 518)):
     image = Image.open(img_path)
     alpha = np.array(image.getchannel(3))
@@ -521,10 +507,12 @@ def merge_parts(save_dir):
     surface_vertex_part_labels = []
     tri_part_labels = []
     part_colors = []
-    part_list = glob.glob(os.path.join(save_dir, "*.glb"))
-    part_list = [
-        p for p in part_list if "part" in p and "parts" not in p and "part0" not in p] # part 0 is the overall model
-    part_list.sort()
+    part_list = []
+    for part_path in glob.glob(os.path.join(save_dir, "*.glb")):
+        part_stem = os.path.splitext(os.path.basename(part_path))[0]
+        if part_stem.startswith("part") and part_stem[4:].isdigit() and part_stem != "part0":
+            part_list.append(part_path)
+    part_list.sort(key=lambda p: int(os.path.splitext(os.path.basename(p))[0][4:]))
     for i, part_surf_path in enumerate(tqdm(part_list, desc="Merging parts")):
         part_surf_mesh = trimesh.load(part_surf_path, force='mesh')
         surface_vertex_part_labels.append(
