@@ -102,6 +102,7 @@ def _fill_holes(
         # Collect face IDs that are visible from this view
         face_id = buffers['face_id'][0][buffers['mask'][0] > 0.95] - 1
         face_id = torch.unique(face_id).long()
+        face_id = face_id[(face_id >= 0) & (face_id < faces.shape[0])]
         visblity[face_id] += 1
     # Normalize visibility to [0,1]
     visblity = visblity.float() / num_views

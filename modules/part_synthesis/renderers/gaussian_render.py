@@ -264,8 +264,9 @@ class GaussianRenderer:
         # Convert OpenCV intrinsics to OpenGL projection matrix
         perspective = intrinsics_to_projection(intrinsics, near, far)
         
-        # Extract camera center from extrinsics (inverse of view matrix)
-        camera = torch.inverse(view)[:3, 3]
+        # Extract camera center from the rigid world-to-camera transform without
+        # invoking CUDA linalg solvers, which can fail on small 4x4 inversions.
+        camera = -(view[:3, :3].T @ view[:3, 3])
         
         # Calculate field of view from focal lengths
         focalx = intrinsics[0, 0]
