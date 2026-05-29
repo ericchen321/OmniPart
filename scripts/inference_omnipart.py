@@ -2,19 +2,17 @@ import os
 import numpy as np
 import torch
 import argparse
-from PIL import Image
 from omegaconf import OmegaConf
 
 from modules.bbox_gen.models.autogressive_bbox_gen import BboxGen
 from modules.part_synthesis.process_utils import save_parts_outputs
-from modules.inference_utils import (
-    load_img_mask,
+from modules.hag4r_step16_inputs import (
+    load_hag4r_step16_inputs,
     prepare_bbox_gen_input,
     prepare_part_synthesis_input,
     gen_mesh_from_bounds,
     vis_voxel_coords,
     merge_parts,
-    generate_segmentation_mask,
 )
 from modules.part_synthesis.pipelines import OmniPartImageTo3DPipeline
 
@@ -24,8 +22,8 @@ if __name__ == "__main__":
     device = "cuda"
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--image_input", type=str, required=True)
-    parser.add_argument("--output_root", type=str, default="./outputs")
+    parser.add_argument("--segmentation_manifest", type=str, required=True)
+    parser.add_argument("--output_root", type=str, required=True)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num_inference_steps", type=int, default=25)
     parser.add_argument("--guidance_scale", type=float, default=7.5)
@@ -39,13 +37,14 @@ if __name__ == "__main__":
         args.partfield_encoder_path = hf_hub_download(repo_id="omnipart/OmniPart_modules", filename="partfield_encoder.ckpt", local_dir="ckpt")
     if not os.path.exists(args.bbox_gen_ckpt):
         args.bbox_gen_ckpt = hf_hub_download(repo_id="omnipart/OmniPart_modules", filename="bbox_gen.ckpt", local_dir="ckpt")
-    sam_ckpt_name = "sam_vit_h_4b8939.pth"
-    sam_ckpt_path = os.path.join("ckpt", sam_ckpt_name)
-    if not os.path.exists(sam_ckpt_path):
-        sam_ckpt_path = hf_hub_download(repo_id="omnipart/OmniPart_modules", filename=sam_ckpt_name, local_dir="ckpt")
 
+    manifest, img_white_bg, img_black_bg, ordered_mask_input = load_hag4r_step16_inputs(
+        args.segmentation_manifest,
+        device=device,
+    )
+    object_name = manifest["object_name"]
     os.makedirs(args.output_root, exist_ok=True)
-    output_dir = os.path.join(args.output_root, args.image_input.split("/")[-1].split(".")[0])
+    output_dir = os.path.join(args.output_root, object_name)
     os.makedirs(output_dir, exist_ok=True)
 
     torch.manual_seed(args.seed)
@@ -63,14 +62,6 @@ if __name__ == "__main__":
     bbox_gen_model.to(device)
     bbox_gen_model.eval().half()
     print("[INFO] BboxGen model loaded")
-    
-    processed_image_path, mask_path = generate_segmentation_mask(
-        args.image_input,
-        output_dir,
-        sam_ckpt_path,
-    )
-    img_white_bg, img_black_bg, ordered_mask_input, img_mask_vis = load_img_mask(processed_image_path, mask_path)
-    img_mask_vis.save(os.path.join(output_dir, "img_mask_vis.png"))
 
     voxel_coords = part_synthesis_pipeline.get_coords(img_black_bg, num_samples=1, seed=args.seed, sparse_structure_sampler_params={"steps": 25, "cfg_strength": 7.5})
     voxel_coords = voxel_coords.cpu().numpy()
