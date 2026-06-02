@@ -2,6 +2,7 @@ import os
 import numpy as np
 import torch
 import argparse
+import time
 from omegaconf import OmegaConf
 
 from modules.bbox_gen.models.autogressive_bbox_gen import BboxGen
@@ -18,6 +19,35 @@ from modules.part_synthesis.pipelines import OmniPartImageTo3DPipeline
 
 from huggingface_hub import hf_hub_download
 
+
+def start_profile_stage(device):
+    if device == "cuda":
+        torch.cuda.synchronize()
+    return time.perf_counter()
+
+
+def finish_profile_stage(profile_times, stage_name, start_time, device):
+    if device == "cuda":
+        torch.cuda.synchronize()
+    profile_times[stage_name] = time.perf_counter() - start_time
+
+
+def print_profile_times(profile_times, total_start_time, device):
+    if device == "cuda":
+        torch.cuda.synchronize()
+    total_seconds = time.perf_counter() - total_start_time
+    staged_seconds = sum(profile_times.values())
+    print("[PROFILE] wall_clock_time_seconds")
+    print(f"[PROFILE] model_weight_loading_seconds={profile_times['model_weight_loading']:.6f}")
+    print(f"[PROFILE] inference_seconds={profile_times['inference']:.6f}")
+    print(
+        "[PROFILE] post_inference_mesh_processing_seconds="
+        f"{profile_times['post_inference_mesh_processing']:.6f}"
+    )
+    print(f"[PROFILE] unattributed_overhead_seconds={total_seconds - staged_seconds:.6f}")
+    print(f"[PROFILE] total_seconds={total_seconds:.6f}")
+
+
 if __name__ == "__main__":
     device = "cuda"
 
@@ -32,7 +62,10 @@ if __name__ == "__main__":
     parser.add_argument("--bbox_gen_ckpt", type=str, default="ckpt/bbox_gen.ckpt")
     parser.add_argument("--part_synthesis_ckpt", type=str, default="omnipart/OmniPart")
     args = parser.parse_args()
+    profile_total_start = time.perf_counter()
+    profile_times = {}
 
+    model_weight_loading_start = start_profile_stage(device)
     if not os.path.exists(args.partfield_encoder_path):
         args.partfield_encoder_path = hf_hub_download(repo_id="omnipart/OmniPart_modules", filename="partfield_encoder.ckpt", local_dir="ckpt")
     if not os.path.exists(args.bbox_gen_ckpt):
@@ -62,7 +95,9 @@ if __name__ == "__main__":
     bbox_gen_model.to(device)
     bbox_gen_model.eval().half()
     print("[INFO] BboxGen model loaded")
+    finish_profile_stage(profile_times, "model_weight_loading", model_weight_loading_start, device)
 
+    inference_start = start_profile_stage(device)
     voxel_coords = part_synthesis_pipeline.get_coords(img_black_bg, num_samples=1, seed=args.seed, sparse_structure_sampler_params={"steps": 25, "cfg_strength": 7.5})
     voxel_coords = voxel_coords.cpu().numpy()
     np.save(os.path.join(output_dir, "voxel_coords.npy"), voxel_coords)
@@ -92,6 +127,9 @@ if __name__ == "__main__":
         preprocess_image=False,
     )
     print(f"[INFO] Got SlAT")
+    finish_profile_stage(profile_times, "inference", inference_start, device)
+
+    post_inference_mesh_processing_start = start_profile_stage(device)
     save_parts_outputs(
         part_synthesis_output, 
         output_dir=output_dir, 
@@ -102,3 +140,10 @@ if __name__ == "__main__":
     )
     merge_parts(output_dir)
     print("[INFO] PartSynthesis output saved")
+    finish_profile_stage(
+        profile_times,
+        "post_inference_mesh_processing",
+        post_inference_mesh_processing_start,
+        device,
+    )
+    print_profile_times(profile_times, profile_total_start, device)
