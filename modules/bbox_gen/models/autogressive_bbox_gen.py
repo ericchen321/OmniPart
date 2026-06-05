@@ -160,7 +160,7 @@ class BboxGen(nn.Module):
         cfg = setup(parsed_args, freeze=False)
         self.partfield_encoder = Model(cfg)
         self.partfield_encoder.eval()
-        weights = torch.load(self.cfg.partfield_encoder_path)["state_dict"]
+        weights = torch.load(self.cfg.partfield_encoder_path, weights_only=False)["state_dict"]
         self.partfield_encoder.load_state_dict(weights)
         for param in self.partfield_encoder.parameters():
             param.requires_grad = False
@@ -300,6 +300,5 @@ class BboxGen(nn.Module):
             'mesh_names': mesh_names,
             'bboxes': bboxes,
         }
-
 
 

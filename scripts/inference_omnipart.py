@@ -91,7 +91,7 @@ if __name__ == "__main__":
     bbox_gen_config = OmegaConf.load("configs/bbox_gen.yaml").model.args
     bbox_gen_config.partfield_encoder_path = args.partfield_encoder_path
     bbox_gen_model = BboxGen(bbox_gen_config)
-    bbox_gen_model.load_state_dict(torch.load(args.bbox_gen_ckpt), strict=False)
+    bbox_gen_model.load_state_dict(torch.load(args.bbox_gen_ckpt, weights_only=False), strict=False)
     bbox_gen_model.to(device)
     bbox_gen_model.eval().half()
     print("[INFO] BboxGen model loaded")

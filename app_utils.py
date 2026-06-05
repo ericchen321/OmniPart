@@ -66,7 +66,7 @@ def prepare_models(sam_ckpt_path, partfield_ckpt_path, bbox_gen_ckpt_path):
         bbox_gen_config = OmegaConf.load("configs/bbox_gen.yaml").model.args
         bbox_gen_config.partfield_encoder_path = partfield_ckpt_path
         bbox_gen_model = BboxGen(bbox_gen_config)
-        bbox_gen_model.load_state_dict(torch.load(bbox_gen_ckpt_path), strict=False)
+        bbox_gen_model.load_state_dict(torch.load(bbox_gen_ckpt_path, weights_only=False), strict=False)
         bbox_gen_model.to(DEVICE)
         bbox_gen_model.eval().half()
     

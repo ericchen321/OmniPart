@@ -29,16 +29,51 @@ Install packages for headless rendering:
 sudo apt install xvfb libgl1-mesa-dev
 ```
 
-Create a conda environment:
+Create a conda environment. The HAG4R-validated environment uses PyTorch
+2.7.0 with CUDA 12.8 wheels, whose arch list includes `sm_120` and
+`compute_120`. The local validation run was performed on an Ada GPU; rerun the
+same validation on Blackwell hardware before claiming hardware-level sm120
+coverage.
+
 ```bash
-conda create -n omnipart python=3.10
-conda activate omnipart
+OMNIPART_ENV_PREFIX=/media/eric/data/conda_envs/omnipart-sm120-master
+conda create -p "$OMNIPART_ENV_PREFIX" python=3.10 -y
+conda activate "$OMNIPART_ENV_PREFIX"
 ```
 
-Install dependencies:
+Install dependencies. `CUDA_HOME` must point at a CUDA 12.x toolkit with
+`nvcc`; the validated setup used `/usr/local/cuda` pointing to CUDA 12.8.
+`TORCH_CUDA_ARCH_LIST` includes the local Ada GPU (`8.9`) and Blackwell/sm120
+(`12.0`) so source-built CUDA extensions contain both targets.
+
 ```bash
+export CUDA_HOME=${CUDA_HOME:-/usr/local/cuda}
+export PATH="$CUDA_HOME/bin:$PATH"
+export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.9;12.0}"
+export MAX_JOBS="${MAX_JOBS:-8}"
+
+pip install --upgrade pip wheel "setuptools<81" ninja==1.13.0 packaging==24.2
 pip install -r requirements.txt
+pip install --no-build-isolation -r requirements-github.txt
+pip install --no-build-isolation -r requirements-huggingface.txt
 ```
+
+Validate the environment:
+
+```bash
+python -m pip check
+python -c "import torch; assert 'sm_120' in torch.cuda.get_arch_list(); print(torch.__version__, torch.version.cuda, torch.cuda.get_arch_list())"
+python -c "import flash_attn, spconv, cumm, nvdiffrast; from diff_gaussian_rasterization import GaussianRasterizationSettings; assert 'kernel_size' in GaussianRasterizationSettings._fields; print('OmniPart CUDA extensions import successfully')"
+python -m scripts.inference_omnipart --help
+```
+
+The requirements above install the HAG4R-validated Step 16 manifest inference
+path. That path consumes a precomputed segmentation manifest and does not use
+OmniPart's native SAM/detectron2 image segmentation stack. The interactive demo
+(`app.py`) and legacy native 2D segmentation modules still import
+`segment-anything` and `detectron2`; install `segment-anything` and a
+`detectron2` build compatible with `torch==2.7.0+cu128` separately before using
+that path.
 
 ## 💡 Usage
 
